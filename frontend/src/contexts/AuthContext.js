@@ -1,199 +1,242 @@
-// frontend/src/contexts/AuthContext.js
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import authService from '../services/authService';
 
-export const AuthContext = createContext();
+// Create the context with default values
+const createDefaultContextValue = () => ({
+  user: null,
+  token: localStorage.getItem('token') || null,
+  isAuthenticated: false,
+  isAdmin: false,
+  loading: true,
+  error: null,
+  register: () => Promise.resolve(),
+  login: () => Promise.resolve(),
+  logout: () => {},
+  updateProfile: () => Promise.resolve(),
+  clearErrors: () => {},
+});
 
+// Create the context
+export const AuthContext = createContext(createDefaultContextValue());
+
+// Custom hook to use AuthContext
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+// Provider component
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
-  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
+  // Set auth token in axios headers whenever token changes
   useEffect(() => {
-    // Load user data if token exists
-    const loadUser = async () => {
-      if (token) {
-        try {
-          const userData = await authService.getMe();
-          setUser(userData);
-          setIsAuthenticated(true);
-          setIsAdmin(userData.role === 'admin');
-          console.log('User loaded:', userData); // Debug log
-          console.log('Is admin:', userData.role === 'admin'); // Debug log
-        } catch (error) {
-          console.error('Error loading user:', error);
-          localStorage.removeItem('token');
-          setToken(null);
-          setUser(null);
-          setIsAuthenticated(false);
-          setIsAdmin(false);
-        }
-      } else {
-        setLoading(false);
-      }
-      setLoading(false);
-    };
-
-    loadUser();
+    console.log('Token changed, setting auth token:', token ? 'exists' : 'none');
+    if (token) {
+      authService.setAuthToken(token);
+    } else {
+      authService.removeAuthToken();
+    }
   }, [token]);
 
-  // Register user
-  const register = async (formData) => {
-    try {
-      const response = await authService.register(formData);
-      
-      // Save token and set user data
-      localStorage.setItem('token', response.token);
-      setToken(response.token);
-      setUser(response.data);
-      setIsAuthenticated(true);
-      setIsAdmin(response.data.role === 'admin');
-      
-      toast.success('Registration successful!');
-      return response;
-    } catch (error) {
-      toast.error(
-        error.response?.data?.error || 'Registration failed. Please try again.'
-      );
-      throw error;
+  // Utility function to handle API calls with proper error handling
+  const handleApiCall = useCallback(
+    async (apiCall, successMessage, errorPrefix = 'Auth error') => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response = await apiCall();
+
+        if (successMessage) {
+          toast.success(successMessage);
+        }
+
+        setLoading(false);
+        return response;
+      } catch (err) {
+        const errorMessage =
+          err.response?.data?.error || err.message || `${errorPrefix}: An unexpected error occurred`;
+        const errorDetails = err.response?.data?.details || null;
+
+        setError(errorMessage);
+        setLoading(false);
+        toast.error(errorMessage);
+
+        // Include details in the thrown error
+        throw { error: errorMessage, details: errorDetails };
+      }
+    },
+    []
+  );
+
+  // Load user data if token exists
+  const loadUser = useCallback(async () => {
+    if (!token) {
+      setLoading(false);
+      return;
     }
-  };
+
+    console.log('Loading user with token:', token.substring(0, 15) + '...');
+
+    try {
+      const response = await handleApiCall(
+        async () => await authService.getCurrentUser(),
+        null,
+        'Failed to load user'
+      );
+
+      const userData = response.data; // authService.getCurrentUser returns { data: { id, email, role, ... } }
+      setUser(userData);
+      setIsAuthenticated(true);
+      setIsAdmin(userData.role === 'admin');
+      console.log('User loaded successfully:', userData);
+    } catch (err) {
+      console.error('Error loading user:', err);
+
+      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+        console.log('Auth token invalid, logging out');
+        localStorage.removeItem('token');
+        setToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
+        setIsAdmin(false);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [token, handleApiCall]);
+
+  // Load user on mount and token change
+  useEffect(() => {
+    loadUser();
+  }, [loadUser]);
+
+  // Register user
+  const register = useCallback(
+    async (userData) => {
+      return handleApiCall(
+        async () => {
+          const response = await authService.register(userData);
+
+          if (response && response.data && response.data.token) {
+            localStorage.setItem('token', response.data.token);
+            setToken(response.data.token);
+            await loadUser(); // Load user data after registration
+          }
+
+          return response;
+        },
+        'Registration successful! Logging you in...',
+        'Registration failed'
+      );
+    },
+    [handleApiCall, loadUser]
+  );
 
   // Login user
-  const login = async (formData) => {
-    try {
-      // For testing purposes, handle admin login separately
-      if (formData.isAdmin) {
-        // Demo admin login
-        const adminCredentials = {
-          email: 'admin@example.com',
-          password: formData.password
-        };
-        
-        // Try to log in with admin credentials
-        try {
-          const response = await authService.login(adminCredentials);
-          
-          // Check if the user is actually an admin
-          if (response.data.role !== 'admin') {
-            throw new Error('This account does not have administrator privileges');
+  const login = useCallback(
+    async ({ email, password }) => {
+      return handleApiCall(
+        async () => {
+          const response = await authService.login({ email, password });
+
+          if (response && response.token) {
+            console.log('Login successful, setting token');
+            localStorage.setItem('token', response.token);
+            setToken(response.token);
+            authService.setAuthToken(response.token);
+
+            const userData = response.user;
+            setUser(userData);
+            setIsAuthenticated(true);
+            setIsAdmin(userData.role === 'admin');
+            console.log('User set:', userData);
           }
-          
-          // Save token and set user data
-          localStorage.setItem('token', response.token);
-          setToken(response.token);
-          setUser(response.data);
-          setIsAuthenticated(true);
-          setIsAdmin(true);
-          
-          console.log('Admin login successful, user data:', response.data); // Debug log
-          
+
           return response;
-        } catch (error) {
-          console.error('Admin login failed:', error);
-          throw new Error('Invalid admin credentials');
-        }
-      } else {
-        // Regular user login
-        const response = await authService.login({
-          email: formData.email,
-          password: formData.password
-        });
-        
-        // Save token and set user data
-        localStorage.setItem('token', response.token);
-        setToken(response.token);
-        setUser(response.data);
-        setIsAuthenticated(true);
-        setIsAdmin(response.data.role === 'admin');
-        
-        console.log('Regular login successful, user data:', response.data); // Debug log
-        
-        return response;
-      }
-    } catch (error) {
-      toast.error(
-        error.message || 'Login failed. Please check your credentials.'
+        },
+        'Login successful!',
+        'Login failed'
       );
-      throw error;
-    }
-  };
+    },
+    [handleApiCall]
+  );
+
+  // Update user profile
+  const updateProfile = useCallback(
+    async (userData) => {
+      return handleApiCall(
+        async () => {
+          const response = await authService.updateProfile(userData);
+
+          if (response && response.data) {
+            setUser((prevUser) => ({ ...prevUser, ...response.data }));
+          }
+
+          return response;
+        },
+        'Profile updated successfully',
+        'Profile update failed'
+      );
+    },
+    [handleApiCall]
+  );
 
   // Logout user
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);
     setIsAuthenticated(false);
     setIsAdmin(false);
+    authService.removeAuthToken();
     toast.info('You have been logged out');
-  };
+  }, []);
 
-  // Forgot password
-  const forgotPassword = async (email) => {
-    try {
-      await authService.forgotPassword(email);
-      toast.success('Password reset email sent. Please check your inbox.');
-    } catch (error) {
-      toast.error(
-        error.response?.data?.error || 'Failed to send reset email. Please try again.'
-      );
-      throw error;
-    }
-  };
+  // Clear errors
+  const clearErrors = useCallback(() => {
+    setError(null);
+  }, []);
 
-  // Reset password
-  const resetPassword = async (token, password) => {
-    try {
-      await authService.resetPassword(token, password);
-      toast.success('Password has been reset successfully. Please login with your new password.');
-    } catch (error) {
-      toast.error(
-        error.response?.data?.error || 'Failed to reset password. Please try again.'
-      );
-      throw error;
-    }
-  };
+  // Debug: Log authentication state changes
+  useEffect(() => {
+    console.log('Auth state changed:', {
+      isAuthenticated,
+      token: token ? 'exists' : 'none',
+      user,
+      isAdmin,
+    });
+  }, [isAuthenticated, token, user, isAdmin]);
 
-  // Update password
-  const updatePassword = async (passwordData) => {
-    try {
-      const response = await authService.updatePassword(passwordData);
-      
-      // Update token
-      localStorage.setItem('token', response.token);
-      setToken(response.token);
-      
-      toast.success('Password updated successfully.');
-      return response;
-    } catch (error) {
-      toast.error(
-        error.response?.data?.error || 'Failed to update password. Please try again.'
-      );
-      throw error;
-    }
-  };
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        token,
-        loading,
-        isAuthenticated,
-        isAdmin,
-        register,
-        login,
-        logout,
-        forgotPassword,
-        resetPassword,
-        updatePassword
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  // Memoize the context value to prevent unnecessary re-renders
+  const contextValue = useMemo(
+    () => ({
+      user,
+      token,
+      isAuthenticated,
+      isAdmin,
+      loading,
+      error,
+      register,
+      login,
+      logout,
+      updateProfile,
+      clearErrors,
+    }),
+    [user, token, isAuthenticated, isAdmin, loading, error, register, login, logout, updateProfile, clearErrors]
   );
+
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 };
+
+export default AuthContext;

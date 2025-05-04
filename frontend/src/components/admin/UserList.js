@@ -14,9 +14,16 @@ const UserList = () => {
     const fetchUsers = async () => {
       try {
         const response = await adminService.getUsers();
-        setUsers(response.data);
+        // Make sure we're handling different response formats
+        const userData = response.data && response.data.data 
+          ? response.data.data 
+          : (Array.isArray(response.data) ? response.data : []);
+        
+        console.log('Fetched users data:', userData);
+        setUsers(userData);
         setLoading(false);
       } catch (err) {
+        console.error('Error fetching users:', err);
         setError('Failed to load users');
         setLoading(false);
       }
@@ -25,12 +32,17 @@ const UserList = () => {
     fetchUsers();
   }, []);
   
+  // Ensure users is an array before filtering
+  const usersArray = Array.isArray(users) ? users : [];
+  
   // Filter users based on search term
-  const filteredUsers = users.filter(user => 
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (user.first_name && user.first_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (user.last_name && user.last_name.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredUsers = searchTerm.trim() === '' 
+    ? usersArray 
+    : usersArray.filter(user => 
+        (user.email && user.email.toLowerCase().includes(searchTerm.toLowerCase())) || 
+        (user.first_name && user.first_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (user.last_name && user.last_name.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
   
   if (loading) {
     return (
@@ -43,6 +55,17 @@ const UserList = () => {
   if (error) {
     return <div className="alert alert-danger">{error}</div>;
   }
+  
+  // Calculate user statistics safely
+  const adminCount = usersArray.filter(user => user.role === 'admin').length;
+  const regularUserCount = usersArray.filter(user => user.role === 'user').length;
+  
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+  const newUserCount = usersArray.filter(user => {
+    return user.created_at && new Date(user.created_at) >= thirtyDaysAgo;
+  }).length;
   
   return (
     <div>
@@ -67,7 +90,7 @@ const UserList = () => {
           </div>
         </div>
         
-        {users.length > 0 ? (
+        {filteredUsers.length > 0 ? (
           <div className="table-container">
             <table className="table">
               <thead>
@@ -84,7 +107,7 @@ const UserList = () => {
                 {filteredUsers.map((user) => (
                   <tr key={user.id}>
                     <td>{user.id}</td>
-                    <td>{user.email}</td>
+                    <td>{user.email || 'N/A'}</td>
                     <td>
                       {user.first_name && user.last_name
                         ? `${user.first_name} ${user.last_name}`
@@ -92,10 +115,10 @@ const UserList = () => {
                     </td>
                     <td>
                       <span className={`badge ${user.role === 'admin' ? 'bg-danger' : 'bg-primary'}`}>
-                        {user.role}
+                        {user.role || 'user'}
                       </span>
                     </td>
-                    <td>{new Date(user.created_at).toLocaleDateString()}</td>
+                    <td>{user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</td>
                     <td>
                       <Link
                         to={`/admin/users/${user.id}`}
@@ -111,7 +134,15 @@ const UserList = () => {
           </div>
         ) : (
           <div className="text-center p-4">
-            <p>No users found.</p>
+            <p>{searchTerm ? 'No users match your search.' : 'No users found.'}</p>
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm('')} 
+                className="btn btn-outline-primary"
+              >
+                Clear Search
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -120,29 +151,19 @@ const UserList = () => {
       <div className="stats-container mt-4">
         <div className="stat-card">
           <h3>Total Users</h3>
-          <div className="stat-value">{users.length}</div>
+          <div className="stat-value">{usersArray.length}</div>
         </div>
         <div className="stat-card">
           <h3>Admin Users</h3>
-          <div className="stat-value">
-            {users.filter(user => user.role === 'admin').length}
-          </div>
+          <div className="stat-value">{adminCount}</div>
         </div>
         <div className="stat-card">
           <h3>Regular Users</h3>
-          <div className="stat-value">
-            {users.filter(user => user.role === 'user').length}
-          </div>
+          <div className="stat-value">{regularUserCount}</div>
         </div>
         <div className="stat-card">
           <h3>New Users (30 days)</h3>
-          <div className="stat-value">
-            {users.filter(user => {
-              const thirtyDaysAgo = new Date();
-              thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-              return new Date(user.created_at) >= thirtyDaysAgo;
-            }).length}
-          </div>
+          <div className="stat-value">{newUserCount}</div>
         </div>
       </div>
     </div>

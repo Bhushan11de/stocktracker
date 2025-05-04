@@ -10,9 +10,9 @@ const AddStock = () => {
   const [formData, setFormData] = useState({
     symbol: '',
     name: '',
-    currentPrice: '',
-    previousClose: '',
-    marketCap: '',
+    current_price: '',  // Changed from currentPrice
+    previous_close: '', // Changed from previousClose
+    market_cap: '',     // Changed from marketCap
     volume: '',
     description: ''
   });
@@ -20,7 +20,7 @@ const AddStock = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
-  const { symbol, name, currentPrice, previousClose, marketCap, volume, description } = formData;
+  const { symbol, name, current_price, previous_close, market_cap, volume, description } = formData;
   
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -32,20 +32,25 @@ const AddStock = () => {
     setLoading(true);
     
     try {
-      await adminService.addStock({
-        symbol,
-        name,
-        currentPrice: parseFloat(currentPrice),
-        previousClose: previousClose ? parseFloat(previousClose) : null,
-        marketCap: marketCap ? parseInt(marketCap) : null,
+      // Ensure current_price is a number
+      const stockData = {
+        symbol: symbol.toUpperCase().trim(),
+        name: name.trim(),
+        current_price: parseFloat(current_price) || 0,
+        previous_close: previous_close ? parseFloat(previous_close) : null,
+        market_cap: market_cap ? parseInt(market_cap) : null,
         volume: volume ? parseInt(volume) : null,
-        description
-      });
+        description: description.trim()
+      };
       
-      toast.success('Stock added successfully');
+      await adminService.addStock(stockData);
+      
+      toast.success(`Stock ${symbol.toUpperCase()} added successfully`);
       navigate('/admin/stocks');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to add stock');
+      toast.error(err.response?.data?.error || 'Failed to add stock');
+    } finally {
       setLoading(false);
     }
   };
@@ -94,13 +99,13 @@ const AddStock = () => {
             
             <div className="form-row">
               <div className="form-group">
-                <label htmlFor="currentPrice">Current Price ($)</label>
+                <label htmlFor="current_price">Current Price ($)</label>
                 <input
                   type="number"
-                  id="currentPrice"
-                  name="currentPrice"
+                  id="current_price"
+                  name="current_price" // Changed from currentPrice
                   className="form-control"
-                  value={currentPrice}
+                  value={current_price}
                   onChange={handleChange}
                   placeholder="e.g. 150.25"
                   step="0.01"
@@ -109,13 +114,13 @@ const AddStock = () => {
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="previousClose">Previous Close ($)</label>
+                <label htmlFor="previous_close">Previous Close ($)</label>
                 <input
                   type="number"
-                  id="previousClose"
-                  name="previousClose"
+                  id="previous_close"
+                  name="previous_close" // Changed from previousClose
                   className="form-control"
-                  value={previousClose}
+                  value={previous_close}
                   onChange={handleChange}
                   placeholder="e.g. 149.75"
                   step="0.01"
@@ -127,13 +132,13 @@ const AddStock = () => {
             
             <div className="form-row">
               <div className="form-group">
-                <label htmlFor="marketCap">Market Cap</label>
+                <label htmlFor="market_cap">Market Cap</label>
                 <input
                   type="number"
-                  id="marketCap"
-                  name="marketCap"
+                  id="market_cap"
+                  name="market_cap" // Changed from marketCap
                   className="form-control"
-                  value={marketCap}
+                  value={market_cap}
                   onChange={handleChange}
                   placeholder="e.g. 2500000000"
                   min="0"

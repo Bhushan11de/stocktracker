@@ -6,9 +6,9 @@ class Stock {
     const {
       symbol,
       name,
-      currentPrice,
-      previousClose,
-      marketCap,
+      current_price,     // Changed from currentPrice
+      previous_close,    // Changed from previousClose
+      market_cap,        // Changed from marketCap
       volume,
       description
     } = stockData;
@@ -25,9 +25,9 @@ class Stock {
     const values = [
       symbol.toUpperCase(), 
       name, 
-      currentPrice, 
-      previousClose, 
-      marketCap, 
+      current_price,     // Changed from currentPrice
+      previous_close,    // Changed from previousClose
+      market_cap,        // Changed from marketCap
       volume, 
       description
     ];
@@ -58,9 +58,9 @@ class Stock {
     const {
       symbol,
       name,
-      currentPrice,
-      previousClose,
-      marketCap,
+      current_price,     // Changed from currentPrice
+      previous_close,    // Changed from previousClose
+      market_cap,        // Changed from marketCap
       volume,
       description
     } = stockData;
@@ -82,9 +82,9 @@ class Stock {
     const values = [
       symbol.toUpperCase(),
       name,
-      currentPrice,
-      previousClose,
-      marketCap,
+      current_price,     // Changed from currentPrice
+      previous_close,    // Changed from previousClose
+      market_cap,        // Changed from marketCap
       volume,
       description,
       id
@@ -94,7 +94,7 @@ class Stock {
     return result.rows[0];
   }
 
-  static async updatePrice(id, currentPrice, previousClose = null) {
+  static async updatePrice(id, current_price, previous_close = null) {
     const query = `
       UPDATE stocks
       SET current_price = $1,
@@ -104,7 +104,7 @@ class Stock {
       RETURNING *
     `;
 
-    const result = await db.query(query, [currentPrice, previousClose, id]);
+    const result = await db.query(query, [current_price, previous_close, id]);
     return result.rows[0];
   }
 

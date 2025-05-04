@@ -10,16 +10,38 @@ const StockList = () => {
   const { stocks, getAllStocks, loading } = useContext(StockContext);
   const [searchTerm, setSearchTerm] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [localLoading, setLocalLoading] = useState(false);
   
   useEffect(() => {
-    getAllStocks();
+    const fetchStocks = async () => {
+      try {
+        setLocalLoading(true);
+        await getAllStocks();
+        console.log("Stocks fetched successfully");
+      } catch (error) {
+        console.error("Error fetching stocks:", error);
+        toast.error("Failed to load stocks");
+      } finally {
+        setLocalLoading(false);
+      }
+    };
+    
+    fetchStocks();
   }, [getAllStocks]);
   
+  // Ensure stocks is an array before filtering
+  const stocksArray = Array.isArray(stocks) ? stocks : [];
+  
+  // Debug log to check what stocks we have
+  console.log("Current stocks in state:", stocksArray);
+  
   // Filter stocks based on search term
-  const filteredStocks = stocks.filter(stock => 
-    stock.symbol.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    stock.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredStocks = searchTerm.trim() === '' 
+    ? stocksArray 
+    : stocksArray.filter(stock => 
+        (stock.symbol && stock.symbol.toLowerCase().includes(searchTerm.toLowerCase())) || 
+        (stock.name && stock.name.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
   
   const handleDeleteStock = async (id, symbol) => {
     if (window.confirm(`Are you sure you want to delete ${symbol}? This will remove all related data including portfolio entries and watchlist items.`)) {
@@ -37,7 +59,19 @@ const StockList = () => {
     }
   };
   
-  if (loading && !stocks.length) {
+  const handleRefreshStocks = async () => {
+    try {
+      setLocalLoading(true);
+      await getAllStocks();
+      toast.success("Stocks refreshed successfully");
+    } catch (error) {
+      toast.error("Failed to refresh stocks");
+    } finally {
+      setLocalLoading(false);
+    }
+  };
+  
+  if ((loading || localLoading) && stocksArray.length === 0) {
     return (
       <div className="spinner-container">
         <div className="spinner"></div>
@@ -53,9 +87,14 @@ const StockList = () => {
         <div className="card-header">
           <div className="d-flex justify-content-between align-items-center">
             <h2>Stock List</h2>
-            <Link to="/admin/add-stock" className="btn btn-success">
-              Add New Stock
-            </Link>
+            <div>
+              <button onClick={handleRefreshStocks} className="btn btn-info me-2" disabled={loading || localLoading}>
+                {(loading || localLoading) ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <Link to="/admin/add-stock" className="btn btn-success">
+                Add New Stock
+              </Link>
+            </div>
           </div>
           <div className="search-form mt-3">
             <div className="input-group">
@@ -73,7 +112,7 @@ const StockList = () => {
           </div>
         </div>
         
-        {stocks.length > 0 ? (
+        {stocksArray.length > 0 ? (
           <div className="table-container">
             <table className="table">
               <thead>
@@ -89,10 +128,10 @@ const StockList = () => {
               </thead>
               <tbody>
                 {filteredStocks.map((stock) => (
-                  <tr key={stock.id}>
-                    <td>{stock.symbol}</td>
-                    <td>{stock.name}</td>
-                    <td>${parseFloat(stock.current_price).toFixed(2)}</td>
+                  <tr key={stock.id || stock.stock_id}>
+                    <td>{stock.symbol || 'Unknown'}</td>
+                    <td>{stock.name || 'Unknown'}</td>
+                    <td>${parseFloat(stock.current_price || 0).toFixed(2)}</td>
                     <td>
                       {stock.previous_close 
                         ? `$${parseFloat(stock.previous_close).toFixed(2)}` 
@@ -111,13 +150,13 @@ const StockList = () => {
                     <td>
                       <div className="stock-actions">
                         <Link 
-                          to={`/admin/edit-stock/${stock.id}`} 
-                          className="btn btn-primary btn-sm"
+                          to={`/admin/edit-stock/${stock.id || stock.stock_id}`} 
+                          className="btn btn-primary btn-sm me-1"
                         >
                           <FaEdit /> Edit
                         </Link>
                         <button
-                          onClick={() => handleDeleteStock(stock.id, stock.symbol)}
+                          onClick={() => handleDeleteStock(stock.id || stock.stock_id, stock.symbol || 'Unknown')}
                           className="btn btn-danger btn-sm"
                           disabled={deleteLoading}
                         >
@@ -132,7 +171,15 @@ const StockList = () => {
           </div>
         ) : (
           <div className="text-center p-4">
-            <p>No stocks found. Add stocks to get started.</p>
+            <p>{searchTerm ? 'No stocks match your search.' : 'No stocks found. Add stocks to get started.'}</p>
+            {searchTerm ? (
+              <button 
+                onClick={() => setSearchTerm('')} 
+                className="btn btn-outline-primary me-2"
+              >
+                Clear Search
+              </button>
+            ) : null}
             <Link to="/admin/add-stock" className="btn btn-primary">Add Stock</Link>
           </div>
         )}

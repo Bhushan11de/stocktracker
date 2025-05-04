@@ -3,6 +3,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FaSearch, FaStar, FaRegStar } from 'react-icons/fa';
 import { StockContext } from '../../contexts/StockContext';
+import { toast } from 'react-toastify';
 
 const BuyStock = () => {
   const { id } = useParams();
@@ -15,7 +16,8 @@ const BuyStock = () => {
     addToWatchlist,
     removeFromWatchlist,
     buyStock,
-    loading
+    loading,
+    error
   } = useContext(StockContext);
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,11 +26,18 @@ const BuyStock = () => {
   const [isInWatchlist, setIsInWatchlist] = useState(false);
   const [buyPrice, setBuyPrice] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
+  const [localLoading, setLocalLoading] = useState(false);
+  const [localError, setLocalError] = useState(null);
   
   // Fetch all stocks on mount
   useEffect(() => {
     const fetchStocks = async () => {
-      await getAllStocks();
+      try {
+        await getAllStocks();
+      } catch (error) {
+        console.error('Error fetching stocks:', error);
+        setLocalError('Failed to load stocks. Please try again.');
+      }
     };
     
     fetchStocks();
@@ -39,25 +48,42 @@ const BuyStock = () => {
     const fetchStockById = async () => {
       if (id) {
         try {
+          setLocalLoading(true);
           const stockData = await getStockById(id);
+          
+          if (!stockData) {
+            setLocalError('Stock not found');
+            setLocalLoading(false);
+            return;
+          }
+          
+          console.log('Fetched stock data:', stockData);
           setSelectedStock(stockData);
-          setIsInWatchlist(stockData.isInWatchlist);
-          setBuyPrice(stockData.current_price);
-          setTotalAmount(stockData.current_price * quantity);
+          setIsInWatchlist(stockData.isInWatchlist || false);
+          setBuyPrice(stockData.current_price || 0);
+          setTotalAmount((stockData.current_price || 0) * quantity);
+          setLocalLoading(false);
         } catch (error) {
           console.error('Error fetching stock:', error);
+          setLocalError('Failed to load stock details');
+          setLocalLoading(false);
         }
       }
     };
     
     fetchStockById();
-  }, [id, getStockById]);
+  }, [id, getStockById, quantity]);
+  
+  // Make sure stocks is an array before filtering
+  const stocksArray = Array.isArray(stocks) ? stocks : [];
   
   // Filter stocks based on search term
-  const filteredStocks = stocks.filter(stock => 
-    stock.symbol.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    stock.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredStocks = searchTerm.trim() === '' 
+    ? stocksArray 
+    : stocksArray.filter(stock => 
+        (stock.symbol && stock.symbol.toLowerCase().includes(searchTerm.toLowerCase())) || 
+        (stock.name && stock.name.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
   
   // Update total amount when quantity or price changes
   useEffect(() => {
@@ -68,13 +94,27 @@ const BuyStock = () => {
   
   const handleSelectStock = async (stock) => {
     try {
+      setLocalLoading(true);
+      setLocalError(null);
+      
+      console.log('Selected stock:', stock);
       const stockData = await getStockById(stock.id);
+      
+      if (!stockData) {
+        setLocalError('Failed to load stock details');
+        setLocalLoading(false);
+        return;
+      }
+      
       setSelectedStock(stockData);
-      setIsInWatchlist(stockData.isInWatchlist);
-      setBuyPrice(stockData.current_price);
-      setTotalAmount(stockData.current_price * quantity);
+      setIsInWatchlist(stockData.isInWatchlist || false);
+      setBuyPrice(stockData.current_price || 0);
+      setTotalAmount((stockData.current_price || 0) * quantity);
+      setLocalLoading(false);
     } catch (error) {
       console.error('Error fetching stock details:', error);
+      setLocalError('Failed to load stock details');
+      setLocalLoading(false);
     }
   };
   
@@ -82,15 +122,23 @@ const BuyStock = () => {
     if (!selectedStock) return;
     
     try {
+      setLocalLoading(true);
+      
       if (isInWatchlist) {
         await removeFromWatchlist(selectedStock.id);
         setIsInWatchlist(false);
+        toast.success('Removed from watchlist');
       } else {
         await addToWatchlist(selectedStock.id);
         setIsInWatchlist(true);
+        toast.success('Added to watchlist');
       }
+      
+      setLocalLoading(false);
     } catch (error) {
       console.error('Error toggling watchlist:', error);
+      toast.error('Failed to update watchlist');
+      setLocalLoading(false);
     }
   };
   
@@ -98,18 +146,36 @@ const BuyStock = () => {
     e.preventDefault();
     
     if (!selectedStock || !quantity || quantity <= 0) {
+      toast.error('Please select a stock and enter a valid quantity');
+      return;
+    }
+    
+    if (!buyPrice || buyPrice <= 0) {
+      toast.error('Please enter a valid price');
       return;
     }
     
     try {
+      setLocalLoading(true);
+      setLocalError(null);
+      
+      console.log('Buying stock:', {
+        stockId: selectedStock.id,
+        quantity,
+        price: buyPrice
+      });
+      
       await buyStock(selectedStock.id, quantity, buyPrice);
+      toast.success(`Successfully purchased ${quantity} shares of ${selectedStock.symbol}`);
       navigate('/portfolio');
     } catch (error) {
       console.error('Error buying stock:', error);
+      setLocalError(error.response?.data?.error || 'Failed to buy stock. Please try again.');
+      setLocalLoading(false);
     }
   };
   
-  if (loading && !stocks.length) {
+  if ((loading || localLoading) && !stocksArray.length) {
     return (
       <div className="spinner-container">
         <div className="spinner"></div>
@@ -120,6 +186,18 @@ const BuyStock = () => {
   return (
     <div>
       <h1>Buy Stocks</h1>
+      
+      {localError && (
+        <div className="alert alert-danger mb-3">
+          {localError}
+        </div>
+      )}
+      
+      {error && (
+        <div className="alert alert-danger mb-3">
+          {error}
+        </div>
+      )}
       
       <div className="row">
         {/* Stock List */}
@@ -142,26 +220,26 @@ const BuyStock = () => {
             </div>
             
             <div style={{ overflowY: 'auto', flex: 1 }}>
-              {filteredStocks.map((stock) => (
-                <div 
-                  key={stock.id} 
-                  className={`stock-card ${selectedStock && selectedStock.id === stock.id ? 'selected' : ''}`}
-                  onClick={() => handleSelectStock(stock)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <div className="stock-info">
-                    <h3>
-                      <span className="symbol">{stock.symbol}</span>
-                    </h3>
-                    <div className="name">{stock.name}</div>
+              {filteredStocks.length > 0 ? (
+                filteredStocks.map((stock) => (
+                  <div 
+                    key={stock.id} 
+                    className={`stock-card ${selectedStock && selectedStock.id === stock.id ? 'selected' : ''}`}
+                    onClick={() => handleSelectStock(stock)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="stock-info">
+                      <h3>
+                        <span className="symbol">{stock.symbol}</span>
+                      </h3>
+                      <div className="name">{stock.name}</div>
+                    </div>
+                    <div className="stock-price">
+                      <div className="current">${parseFloat(stock.current_price || 0).toFixed(2)}</div>
+                    </div>
                   </div>
-                  <div className="stock-price">
-                    <div className="current">${parseFloat(stock.current_price).toFixed(2)}</div>
-                  </div>
-                </div>
-              ))}
-              
-              {filteredStocks.length === 0 && (
+                ))
+              ) : (
                 <div className="text-center p-4">
                   <p>No stocks found matching your search.</p>
                 </div>
@@ -193,7 +271,7 @@ const BuyStock = () => {
                     </button>
                   </div>
                   <div className="stock-price-info">
-                    <p><strong>Current Price:</strong> ${parseFloat(selectedStock.current_price).toFixed(2)}</p>
+                    <p><strong>Current Price:</strong> ${parseFloat(selectedStock.current_price || 0).toFixed(2)}</p>
                     {selectedStock.previous_close && (
                       <p>
                         <strong>Change:</strong>
@@ -213,7 +291,7 @@ const BuyStock = () => {
                 </div>
                 
                 <form onSubmit={handleBuyStock}>
-                  <div className="form-group">
+                  <div className="form-group mb-3">
                     <label htmlFor="quantity">Quantity</label>
                     <input
                       type="number"
@@ -226,7 +304,7 @@ const BuyStock = () => {
                     />
                   </div>
                   
-                  <div className="form-group">
+                  <div className="form-group mb-3">
                     <label htmlFor="buyPrice">Price per Share ($)</label>
                     <input
                       type="number"
@@ -240,7 +318,7 @@ const BuyStock = () => {
                     />
                   </div>
                   
-                  <div className="form-group">
+                  <div className="form-group mb-3">
                     <label htmlFor="totalAmount">Total Amount</label>
                     <div className="input-group">
                       <div className="input-group-prepend">
@@ -260,9 +338,9 @@ const BuyStock = () => {
                     type="submit"
                     className="btn btn-success"
                     style={{ width: '100%', marginTop: '20px' }}
-                    disabled={loading}
+                    disabled={loading || localLoading}
                   >
-                    {loading ? 'Processing...' : 'Buy Now'}
+                    {loading || localLoading ? 'Processing...' : 'Buy Now'}
                   </button>
                 </form>
               </div>

@@ -17,9 +17,18 @@ const AdminDashboard = () => {
     const fetchDashboardStats = async () => {
       try {
         const response = await adminService.getDashboardStats();
-        setStats(response.data);
+        console.log('Dashboard API response:', response); // Debug log
+        
+        // Extract the data from the response, handling different structures
+        const statsData = response.data && response.data.data 
+          ? response.data.data 
+          : (response.data || {});
+        
+        console.log('Extracted stats data:', statsData); // Debug log
+        setStats(statsData);
         setLoading(false);
       } catch (err) {
+        console.error('Error fetching dashboard stats:', err);
         setError('Failed to load dashboard statistics');
         setLoading(false);
       }
@@ -71,8 +80,29 @@ const AdminDashboard = () => {
   }
   
   if (error) {
-    return <div className="alert alert-danger">{error}</div>;
+    return (
+      <div className="alert alert-danger">
+        <h3>Error Loading Dashboard</h3>
+        <p>{error}</p>
+        <button 
+          className="btn btn-outline-primary mt-2"
+          onClick={() => window.location.reload()}
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
+  
+  // Safely get properties with fallbacks
+  const totalUsers = stats?.totalUsers || 0;
+  const totalStocks = stats?.totalStocks || 0;
+  const totalTransactions = stats?.totalTransactions || 0;
+  const buyVolume = stats?.buyVolume || 0;
+  const sellVolume = stats?.sellVolume || 0;
+  const recentTransactions = Array.isArray(stats?.recentTransactions) 
+    ? stats.recentTransactions 
+    : [];
   
   return (
     <div>
@@ -82,20 +112,20 @@ const AdminDashboard = () => {
       <div className="stats-container">
         <div className="stat-card">
           <h3>Total Users</h3>
-          <div className="stat-value">{stats?.totalUsers || 0}</div>
+          <div className="stat-value">{totalUsers}</div>
         </div>
         <div className="stat-card">
           <h3>Total Stocks</h3>
-          <div className="stat-value">{stats?.totalStocks || 0}</div>
+          <div className="stat-value">{totalStocks}</div>
         </div>
         <div className="stat-card">
           <h3>Total Transactions</h3>
-          <div className="stat-value">{stats?.totalTransactions || 0}</div>
+          <div className="stat-value">{totalTransactions}</div>
         </div>
         <div className="stat-card">
           <h3>Transaction Volume</h3>
           <div className="stat-value">
-            ${((stats?.buyVolume || 0) + (stats?.sellVolume || 0)).toFixed(2)}
+            ${(buyVolume + sellVolume).toFixed(2)}
           </div>
         </div>
       </div>
@@ -107,12 +137,17 @@ const AdminDashboard = () => {
       
       {/* Recent Transactions */}
       <div className="card">
-        <div className="card-header">
+        <div className="card-header d-flex justify-content-between align-items-center">
           <h2>Recent Transactions</h2>
-          <Link to="/admin/transactions" className="btn btn-secondary">View All</Link>
+          <div>
+            <button onClick={() => window.location.reload()} className="btn btn-outline-primary me-2">
+              Refresh
+            </button>
+            <Link to="/admin/transactions" className="btn btn-secondary">View All</Link>
+          </div>
         </div>
         
-        {stats?.recentTransactions?.length > 0 ? (
+        {recentTransactions.length > 0 ? (
           <div className="table-container">
             <table className="table">
               <thead>
@@ -127,26 +162,30 @@ const AdminDashboard = () => {
                 </tr>
               </thead>
               <tbody>
-                {stats.recentTransactions.map((transaction) => (
+                {recentTransactions.map((transaction) => (
                   <tr key={transaction.id}>
-                    <td>{transaction.user_email}</td>
-                    <td>{transaction.symbol}</td>
+                    <td>{transaction.user_email || 'Unknown'}</td>
+                    <td>{transaction.symbol || 'Unknown'}</td>
                     <td>
                       <span className={transaction.type === 'buy' ? 'text-success' : 'text-danger'}>
-                        {transaction.type.toUpperCase()}
+                        {(transaction.type || '').toUpperCase()}
                       </span>
                     </td>
-                    <td>{transaction.quantity}</td>
-                    <td>${parseFloat(transaction.price).toFixed(2)}</td>
-                    <td>${parseFloat(transaction.total_amount).toFixed(2)}</td>
-                    <td>{new Date(transaction.transaction_date).toLocaleDateString()}</td>
+                    <td>{transaction.quantity || 0}</td>
+                    <td>${parseFloat(transaction.price || 0).toFixed(2)}</td>
+                    <td>${parseFloat(transaction.total_amount || 0).toFixed(2)}</td>
+                    <td>{transaction.transaction_date 
+                      ? new Date(transaction.transaction_date).toLocaleDateString() 
+                      : 'Unknown'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <p className="text-center p-3">No recent transactions</p>
+          <div className="text-center p-4">
+            <p>No recent transactions</p>
+          </div>
         )}
       </div>
       
@@ -156,7 +195,7 @@ const AdminDashboard = () => {
           <div className="card">
             <div className="card-body text-center">
               <h3>Manage Users</h3>
-              <p>View and manage user accounts</p>
+              <p>View and manage user accounts ({totalUsers})</p>
               <Link to="/admin/users" className="btn btn-primary">Go to Users</Link>
             </div>
           </div>
@@ -165,7 +204,7 @@ const AdminDashboard = () => {
           <div className="card">
             <div className="card-body text-center">
               <h3>Manage Stocks</h3>
-              <p>View, add, edit, or delete stocks</p>
+              <p>View, add, edit, or delete stocks ({totalStocks})</p>
               <Link to="/admin/stocks" className="btn btn-primary">Go to Stocks</Link>
             </div>
           </div>

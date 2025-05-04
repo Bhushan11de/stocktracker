@@ -29,15 +29,21 @@ const SellStock = () => {
     fetchPortfolio();
   }, [getUserPortfolio]);
   
+  // Make sure portfolio is an array
+  const portfolioItems = Array.isArray(portfolio) ? portfolio : [];
+  
   // Set selected stock if ID is provided in URL
   useEffect(() => {
-    if (id && portfolio.length > 0) {
-      const stock = portfolio.find(item => item.stock_id === parseInt(id));
+    if (id && portfolioItems.length > 0) {
+      const stock = portfolioItems.find(item => 
+        (item.stock_id && item.stock_id === parseInt(id)) || 
+        (item.id && item.id === parseInt(id))
+      );
       if (stock) {
         handleSelectStock(stock);
       }
     }
-  }, [id, portfolio]);
+  }, [id, portfolioItems]);
   
   // Update total amount when quantity or price changes
   useEffect(() => {
@@ -48,10 +54,10 @@ const SellStock = () => {
   
   const handleSelectStock = (stock) => {
     setSelectedStock(stock);
-    setSellPrice(stock.current_price);
-    setMaxQuantity(stock.quantity);
+    setSellPrice(stock.current_price || 0);
+    setMaxQuantity(stock.quantity || 0);
     setQuantity(1);
-    setTotalAmount(stock.current_price * 1);
+    setTotalAmount((stock.current_price || 0) * 1);
   };
   
   const handleSellStock = async (e) => {
@@ -62,14 +68,16 @@ const SellStock = () => {
     }
     
     try {
-      await sellStock(selectedStock.stock_id, quantity, sellPrice);
+      // Use either stock_id or id, whichever is available
+      const stockId = selectedStock.stock_id || selectedStock.id;
+      await sellStock(stockId, quantity, sellPrice);
       navigate('/portfolio');
     } catch (error) {
       console.error('Error selling stock:', error);
     }
   };
   
-  if (loading && portfolio.length === 0) {
+  if (loading) {
     return (
       <div className="spinner-container">
         <div className="spinner"></div>
@@ -90,24 +98,28 @@ const SellStock = () => {
             </div>
             
             <div style={{ overflowY: 'auto', flex: 1 }}>
-              {portfolio.length > 0 ? (
-                portfolio.map((stock) => (
+              {portfolioItems.length > 0 ? (
+                portfolioItems.map((stock) => (
                   <div 
-                    key={stock.stock_id} 
-                    className={`stock-card ${selectedStock && selectedStock.stock_id === stock.stock_id ? 'selected' : ''}`}
+                    key={stock.stock_id || stock.id || Math.random().toString()} 
+                    className={`stock-card ${
+                      selectedStock && 
+                      (selectedStock.stock_id === stock.stock_id || 
+                       selectedStock.id === stock.id) ? 'selected' : ''
+                    }`}
                     onClick={() => handleSelectStock(stock)}
                     style={{ cursor: 'pointer' }}
                   >
                     <div className="stock-info">
                       <h3>
-                        <span className="symbol">{stock.symbol}</span>
+                        <span className="symbol">{stock.symbol || 'Unknown'}</span>
                       </h3>
-                      <div className="name">{stock.name}</div>
-                      <div className="quantity">Quantity: {stock.quantity}</div>
+                      <div className="name">{stock.name || 'Unknown'}</div>
+                      <div className="quantity">Quantity: {stock.quantity || 0}</div>
                     </div>
                     <div className="stock-price">
-                      <div className="current">${parseFloat(stock.current_price).toFixed(2)}</div>
-                      <div className="avg-price">Avg: ${parseFloat(stock.average_buy_price).toFixed(2)}</div>
+                      <div className="current">${parseFloat(stock.current_price || 0).toFixed(2)}</div>
+                      <div className="avg-price">Avg: ${parseFloat(stock.average_buy_price || 0).toFixed(2)}</div>
                     </div>
                   </div>
                 ))
@@ -131,14 +143,14 @@ const SellStock = () => {
               <div className="card-body">
                 <div className="selected-stock-info" style={{ marginBottom: '20px' }}>
                   <h3>
-                    {selectedStock.symbol} - {selectedStock.name}
+                    {selectedStock.symbol || 'Unknown'} - {selectedStock.name || 'Unknown'}
                   </h3>
                   <div className="stock-price-info">
-                    <p><strong>Current Price:</strong> ${parseFloat(selectedStock.current_price).toFixed(2)}</p>
-                    <p><strong>Average Buy Price:</strong> ${parseFloat(selectedStock.average_buy_price).toFixed(2)}</p>
-                    <p><strong>Shares Owned:</strong> {selectedStock.quantity}</p>
+                    <p><strong>Current Price:</strong> ${parseFloat(selectedStock.current_price || 0).toFixed(2)}</p>
+                    <p><strong>Average Buy Price:</strong> ${parseFloat(selectedStock.average_buy_price || 0).toFixed(2)}</p>
+                    <p><strong>Shares Owned:</strong> {selectedStock.quantity || 0}</p>
                     <p>
-                      <strong>Current Value:</strong> ${(selectedStock.quantity * selectedStock.current_price).toFixed(2)}
+                      <strong>Current Value:</strong> ${((selectedStock.quantity || 0) * (selectedStock.current_price || 0)).toFixed(2)}
                     </p>
                   </div>
                 </div>
@@ -191,10 +203,11 @@ const SellStock = () => {
                   
                   <div className="potential-profit-loss">
                     {(() => {
-                      const cost = quantity * selectedStock.average_buy_price;
+                      const avgPrice = selectedStock.average_buy_price || 0;
+                      const cost = quantity * avgPrice;
                       const revenue = quantity * sellPrice;
                       const profitLoss = revenue - cost;
-                      const profitLossPercentage = (profitLoss / cost) * 100;
+                      const profitLossPercentage = cost > 0 ? (profitLoss / cost) * 100 : 0;
                       
                       return (
                         <div className={`alert ${profitLoss >= 0 ? 'alert-success' : 'alert-danger'}`}>

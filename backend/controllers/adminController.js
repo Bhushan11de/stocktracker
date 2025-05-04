@@ -143,12 +143,20 @@ exports.addStock = async (req, res, next) => {
     const {
       symbol,
       name,
-      currentPrice,
-      previousClose,
-      marketCap,
+      current_price,     // Changed from currentPrice
+      previous_close,    // Changed from previousClose
+      market_cap,        // Changed from marketCap
       volume,
       description
     } = req.body;
+
+    // Validate required fields
+    if (!symbol || !name || current_price === undefined || current_price === null) {
+      return res.status(400).json({
+        success: false,
+        error: 'Symbol, name, and current_price are required fields'
+      });
+    }
 
     // Check if stock already exists
     const existingStock = await Stock.findBySymbol(symbol);
@@ -163,9 +171,9 @@ exports.addStock = async (req, res, next) => {
     const stock = await Stock.create({
       symbol,
       name,
-      currentPrice,
-      previousClose,
-      marketCap,
+      current_price,     // Changed from currentPrice
+      previous_close,    // Changed from previousClose
+      market_cap,        // Changed from marketCap
       volume,
       description
     });
@@ -175,6 +183,7 @@ exports.addStock = async (req, res, next) => {
       data: stock
     });
   } catch (error) {
+    console.error('Stock creation error:', error);
     next(error);
   }
 };
@@ -195,14 +204,37 @@ exports.updateStock = async (req, res, next) => {
       });
     }
 
+    // Update stock with correct field names
+    const {
+      symbol,
+      name,
+      current_price,    // Changed from currentPrice
+      previous_close,   // Changed from previousClose
+      market_cap,       // Changed from marketCap
+      volume,
+      description
+    } = req.body;
+
+    // Create updated stock data object
+    const stockData = {};
+    
+    if (symbol !== undefined) stockData.symbol = symbol;
+    if (name !== undefined) stockData.name = name;
+    if (current_price !== undefined) stockData.current_price = current_price;
+    if (previous_close !== undefined) stockData.previous_close = previous_close;
+    if (market_cap !== undefined) stockData.market_cap = market_cap;
+    if (volume !== undefined) stockData.volume = volume;
+    if (description !== undefined) stockData.description = description;
+
     // Update stock
-    const stock = await Stock.update(stockId, req.body);
+    const stock = await Stock.update(stockId, stockData);
 
     res.status(200).json({
       success: true,
       data: stock
     });
   } catch (error) {
+    console.error('Stock update error:', error);
     next(error);
   }
 };

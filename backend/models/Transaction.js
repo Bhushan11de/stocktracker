@@ -3,18 +3,41 @@ const db = require('../config/db');
 
 class Transaction {
   static async create(userId, stockId, type, quantity, price) {
-    const totalAmount = quantity * price;
-    
-    const query = `
-      INSERT INTO transactions (user_id, stock_id, type, quantity, price, total_amount)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-    `;
-    
-    const values = [userId, stockId, type, quantity, price, totalAmount];
-    const result = await db.query(query, values);
-    
-    return result.rows[0];
+    try {
+      // Try the first approach with explicitly providing total_amount
+      const totalAmount = quantity * price;
+      
+      const query = `
+        INSERT INTO transactions (user_id, stock_id, type, quantity, price, total_amount)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `;
+      
+      const values = [userId, stockId, type, quantity, price, totalAmount];
+      
+      const result = await db.query(query, values);
+      return result.rows[0];
+    } catch (error) {
+      // If the first approach fails with the specific error about total_amount
+      if (error.message && error.message.includes("total_amount")) {
+        console.log("Falling back to DEFAULT value for total_amount");
+        
+        // Try alternative approach without specifying total_amount
+        const queryAlt = `
+          INSERT INTO transactions (user_id, stock_id, type, quantity, price)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING *
+        `;
+        
+        const valuesAlt = [userId, stockId, type, quantity, price];
+        const resultAlt = await db.query(queryAlt, valuesAlt);
+        return resultAlt.rows[0];
+      } else {
+        // If it's a different error, throw it up the chain
+        console.error("Transaction creation error:", error);
+        throw error;
+      }
+    }
   }
   
   static async getUserTransactions(userId) {

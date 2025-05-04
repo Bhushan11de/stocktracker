@@ -1,212 +1,395 @@
 // frontend/src/components/user/UserDashboard.js
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Line } from 'react-chartjs-2';
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
-import { AuthContext } from '../../contexts/AuthContext';
-import { StockContext } from '../../contexts/StockContext';
-import userService from '../../services/userService';
+import { toast } from 'react-toastify';
+import { FaSync, FaExchangeAlt, FaChartLine } from 'react-icons/fa';
 
-// Register ChartJS components
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+// Context Hooks
+import { useAuth } from '../../contexts/AuthContext';
+import { useStockContext } from '../../contexts/StockContext';
+
+// API and Service Imports
+import axios from '../../utils/axios';
+import { handleApiError } from '../../utils/errorHandler';
+
+// Component Imports
+import GlobalLoadingSpinner from '../../components/GlobalLoadingSpinner';
+
+// Import CSS
+import '../../assets/css/dashboard.css';
 
 const UserDashboard = () => {
-  const { user } = useContext(AuthContext);
-  const { getUserPortfolio, getUserWatchlist } = useContext(StockContext);
-  
+  // Context Hooks
+  const { user } = useAuth();
+  const { 
+    portfolio, 
+    watchlist, 
+    getUserPortfolio, 
+    getUserWatchlist, 
+    loading: contextLoading, 
+    error: contextError 
+  } = useStockContext();
+
+  // Local State Management
   const [dashboardData, setDashboardData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        const response = await userService.getDashboard();
-        setDashboardData(response.data);
-        
-        // Also update the context data
-        await getUserPortfolio();
-        await getUserWatchlist();
-        
-        setLoading(false);
-      } catch (err) {
-        setError('Failed to load dashboard data');
-        setLoading(false);
-      }
-    };
-    
-    fetchDashboardData();
-  }, [getUserPortfolio, getUserWatchlist]);
-  
-  // Chart data for portfolio performance
-  const portfolioChartData = {
-    labels: ['7 Days Ago', '6 Days Ago', '5 Days Ago', '4 Days Ago', '3 Days Ago', '2 Days Ago', 'Today'],
-    datasets: [
-      {
-        label: 'Portfolio Value ($)',
-        data: [
-          dashboardData?.portfolioSummary?.totalValue * 0.95,
-          dashboardData?.portfolioSummary?.totalValue * 0.97,
-          dashboardData?.portfolioSummary?.totalValue * 0.96,
-          dashboardData?.portfolioSummary?.totalValue * 0.98,
-          dashboardData?.portfolioSummary?.totalValue * 0.99,
-          dashboardData?.portfolioSummary?.totalValue * 0.99,
-          dashboardData?.portfolioSummary?.totalValue
-        ],
-        fill: false,
-        borderColor: 'rgb(53, 162, 235)',
-        tension: 0.1
-      }
-    ]
-  };
-  
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'top',
-      },
-      title: {
-        display: true,
-        text: 'Portfolio Performance (7 Days)'
-      }
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Helper function to calculate portfolio summary
+  const calculatePortfolioSummary = useCallback((portfolioData) => {
+    if (!portfolioData || portfolioData.length === 0) {
+      return {
+        totalValue: 0,
+        profitLoss: 0,
+        percentageChange: 0
+      };
     }
+
+    const totalValue = portfolioData.reduce((total, item) => 
+      total + ((item.quantity || 0) * parseFloat(item.current_price || 0)), 0);
+    const totalCost = portfolioData.reduce((total, item) => 
+      total + ((item.quantity || 0) * parseFloat(item.average_buy_price || 0)), 0);
+    const profitLoss = totalValue - totalCost;
+    const percentageChange = totalCost > 0 ? (profitLoss / totalCost) * 100 : 0;
+
+    return {
+      totalValue,
+      profitLoss,
+      percentageChange
+    };
+  }, []);
+
+  // Fetch Dashboard Data
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setRefreshing(true);
+      console.log('Fetching dashboard data...');
+      
+      // Fetch portfolio and watchlist data
+      await getUserPortfolio();
+      await getUserWatchlist();
+      
+      // Try to fetch additional dashboard data if endpoint exists
+      try {
+        const dashboardResponse = await axios.get('/users/dashboard');
+        console.log('Dashboard data received:', dashboardResponse.data);
+        setDashboardData(dashboardResponse.data.data || dashboardResponse.data);
+      } catch (dashboardErr) {
+        console.log('Dashboard endpoint not available, using portfolio data instead');
+        
+        // Create synthetic dashboard data from portfolio and watchlist
+        const portfolioArray = Array.isArray(portfolio) ? portfolio : [];
+        setDashboardData({
+          portfolioSummary: calculatePortfolioSummary(portfolioArray),
+          recentTransactions: [], // We don't have this data without the dashboard endpoint
+          insights: [] // We don't have this data without the dashboard endpoint
+        });
+      }
+      
+      setError(null);
+    } catch (err) {
+      const errorMessage = handleApiError(err);
+      setError(errorMessage);
+      toast.error(errorMessage);
+      console.error('Dashboard Fetch Error:', err);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  }, [getUserPortfolio, getUserWatchlist, portfolio, calculatePortfolioSummary]);
+
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  // Memoized Portfolio Calculations
+  const portfolioSummary = useMemo(() => {
+    // If we have dashboard data with portfolio summary, use that
+    if (dashboardData?.portfolioSummary) {
+      return {
+        totalValue: dashboardData.portfolioSummary.totalValue || 0,
+        profitLoss: dashboardData.portfolioSummary.profitLoss || 
+                    dashboardData.portfolioSummary.totalProfitLoss || 0,
+        percentageChange: dashboardData.portfolioSummary.percentageChange || 
+                          dashboardData.portfolioSummary.profitLossPercentage || 0
+      };
+    }
+    
+    // Otherwise calculate from portfolio data
+    const portfolioArray = Array.isArray(portfolio) ? portfolio : [];
+    return calculatePortfolioSummary(portfolioArray);
+  }, [dashboardData?.portfolioSummary, portfolio, calculatePortfolioSummary]);
+
+  const handleRefresh = () => {
+    fetchDashboardData();
+    toast.info('Refreshing dashboard data...');
   };
-  
-  if (loading) {
+
+  // Render Loading State
+  if (isLoading || contextLoading) {
+    return <GlobalLoadingSpinner />;
+  }
+
+  // Render Error State
+  if (error || contextError) {
     return (
-      <div className="spinner-container">
-        <div className="spinner"></div>
+      <div className="error-container">
+        <h2>Dashboard Error</h2>
+        <p>{error || contextError}</p>
+        <div className="error-actions">
+          <button 
+            onClick={fetchDashboardData} 
+            className="btn-retry"
+          >
+            Retry Loading
+          </button>
+          <button 
+            onClick={() => window.location.href = '/'}
+            className="btn-home"
+          >
+            Go to Home
+          </button>
+        </div>
       </div>
     );
   }
-  
-  if (error) {
-    return <div className="alert alert-danger">{error}</div>;
-  }
-  
+
+  // Safely access data with fallbacks to prevent rendering errors
+  const recentTransactions = dashboardData?.recentTransactions || [];
+  const insights = dashboardData?.insights || [];
+  const portfolioItems = Array.isArray(portfolio) ? portfolio : [];
+  const watchlistItems = Array.isArray(watchlist) ? watchlist : [];
+
+  // Format user name
+  const userName = user?.name || user?.first_name || 'Investor';
+
+  // Helper function to safely format transaction amount
+  const formatTransactionAmount = (transaction) => {
+    // Try multiple possible amount fields, ensuring it's a number
+    const amount = 
+      parseFloat(transaction.totalAmount) || 
+      parseFloat(transaction.total_amount) || 
+      parseFloat(transaction.amount) || 
+      0;
+    
+    return amount.toFixed(2);
+  };
+
   return (
-    <div>
-      <h1>Welcome, {user?.first_name || 'Investor'}!</h1>
-      
-      {/* Portfolio Summary */}
-      <div className="stats-container">
-        <div className="stat-card">
-          <h3>Portfolio Value</h3>
-          <div className="stat-value">
-            ${dashboardData?.portfolioSummary?.totalValue?.toFixed(2) || '0.00'}
+    <div className="user-dashboard container">
+      {/* Welcome Section */}
+      <div className="dashboard-header">
+        <div className="d-flex justify-content-between align-items-center">
+          <div className="header-content">
+            <h1>Welcome, {userName}!</h1>
+            <p className="header-subtitle">
+              Here's an overview of your investment portfolio
+            </p>
           </div>
+          <button 
+            onClick={handleRefresh} 
+            className="btn btn-outline-primary"
+            disabled={refreshing}
+          >
+            <FaSync className={refreshing ? 'fa-spin' : ''} /> Refresh
+          </button>
         </div>
-        <div className={`stat-card ${dashboardData?.portfolioSummary?.totalProfitLoss >= 0 ? 'profit' : 'loss'}`}>
-          <h3>Total Profit/Loss</h3>
-          <div className="stat-value">
-            ${Math.abs(dashboardData?.portfolioSummary?.totalProfitLoss || 0).toFixed(2)} 
-            {dashboardData?.portfolioSummary?.totalProfitLoss >= 0 ? ' Profit' : ' Loss'}
-          </div>
-        </div>
-        <div className="stat-card">
-          <h3>Transactions</h3>
-          <div className="stat-value">
-            {dashboardData?.transactionSummary?.total_transactions || 0}
-          </div>
-        </div>
-        <div className="stat-card">
-          <h3>Watchlist Stocks</h3>
-          <div className="stat-value">
-            {dashboardData?.watchlist?.length || 0}
-          </div>
+        <div className="header-actions mt-3">
+          <Link to="/buy-stock" className="btn btn-primary me-2">
+            <FaExchangeAlt className="me-1" /> Trade
+          </Link>
+          <Link to="/portfolio" className="btn btn-secondary">
+            <FaChartLine className="me-1" /> Manage Portfolio
+          </Link>
         </div>
       </div>
-      
-      {/* Portfolio Chart */}
-      {dashboardData?.portfolioSummary?.totalValue > 0 && (
-        <div className="chart-container">
-          <Line data={portfolioChartData} options={chartOptions} />
-        </div>
-      )}
-      
-      {/* Recent Transactions */}
-      <div className="card">
-        <div className="card-header">
-          <h2>Recent Transactions</h2>
-          <Link to="/transactions" className="btn btn-secondary">View All</Link>
-        </div>
-        
-        {dashboardData?.recentTransactions?.length > 0 ? (
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Stock</th>
-                  <th>Type</th>
-                  <th>Quantity</th>
-                  <th>Price</th>
-                  <th>Total</th>
-                  <th>Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dashboardData.recentTransactions.map((transaction) => (
-                  <tr key={transaction.id}>
-                    <td>{transaction.symbol}</td>
-                    <td>
-                      <span className={transaction.type === 'buy' ? 'text-success' : 'text-danger'}>
-                        {transaction.type.toUpperCase()}
-                      </span>
-                    </td>
-                    <td>{transaction.quantity}</td>
-                    <td>${parseFloat(transaction.price).toFixed(2)}</td>
-                    <td>${parseFloat(transaction.total_amount).toFixed(2)}</td>
-                    <td>{new Date(transaction.transaction_date).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p>No recent transactions</p>
-        )}
-      </div>
-      
-      {/* Watchlist Preview */}
-      <div className="card">
-        <div className="card-header">
-          <h2>Watchlist</h2>
-          <Link to="/watchlist" className="btn btn-secondary">View All</Link>
-        </div>
-        
-        {dashboardData?.watchlist?.length > 0 ? (
-          <div>
-            {dashboardData.watchlist.slice(0, 3).map((item) => (
-              <div className="stock-card" key={item.id}>
-                <div className="stock-info">
-                  <h3>
-                    <span className="symbol">{item.symbol}</span>
-                  </h3>
-                  <div className="name">{item.name}</div>
-                </div>
-                <div className="stock-price">
-                  <div className="current">${parseFloat(item.current_price).toFixed(2)}</div>
-                  {item.previous_close && (
-                    <div className={`change ${item.current_price >= item.previous_close ? 'positive' : 'negative'}`}>
-                      {item.current_price >= item.previous_close ? '+' : ''}
-                      {(((item.current_price - item.previous_close) / item.previous_close) * 100).toFixed(2)}%
-                    </div>
-                  )}
+
+      {/* Portfolio Overview */}
+      <section className="portfolio-overview mt-4">
+        <div className="row">
+          <div className="col-md-3">
+            <div className="card">
+              <div className="card-body">
+                <h3 className="card-title">Total Portfolio Value</h3>
+                <div className="card-value">
+                  ₹{portfolioSummary?.totalValue.toFixed(2) || '0.00'}
                 </div>
               </div>
-            ))}
-            {dashboardData.watchlist.length > 3 && (
-              <div className="text-center" style={{ padding: '10px' }}>
-                <Link to="/watchlist">View {dashboardData.watchlist.length - 3} more...</Link>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className={`card ${(portfolioSummary?.profitLoss || 0) >= 0 ? 'border-success' : 'border-danger'}`}>
+              <div className="card-body">
+                <h3 className="card-title">Total Profit/Loss</h3>
+                <div className={`card-value ${(portfolioSummary?.profitLoss || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                  {(portfolioSummary?.profitLoss || 0) >= 0 ? '+' : '-'}
+                  ₹{Math.abs(portfolioSummary?.profitLoss || 0).toFixed(2)}
+                  <span className="percentage-change">
+                    ({(portfolioSummary?.percentageChange || 0) >= 0 ? '+' : ''}
+                    {(portfolioSummary?.percentageChange || 0).toFixed(2)}%)
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="card">
+              <div className="card-body">
+                <h3 className="card-title">Total Stocks</h3>
+                <div className="card-value">
+                  {portfolioItems.length || 0}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="card">
+              <div className="card-body">
+                <h3 className="card-title">Watchlist</h3>
+                <div className="card-value">
+                  {watchlistItems.length || 0}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Recent Transactions */}
+      <section className="recent-transactions mt-4">
+        <div className="card">
+          <div className="card-header d-flex justify-content-between align-items-center">
+            <h2>Recent Transactions</h2>
+            <Link to="/transactions" className="btn btn-sm btn-outline-primary">View All</Link>
+          </div>
+          <div className="card-body">
+            {recentTransactions.length > 0 ? (
+              <div className="table-responsive">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Stock</th>
+                      <th>Type</th>
+                      <th>Quantity</th>
+                      <th>Amount</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentTransactions.slice(0, 5).map((transaction, index) => (
+                      <tr key={transaction.id || `transaction-${index}`}>
+                        <td className="stock-symbol">{transaction.stockSymbol || transaction.symbol || 'Unknown'}</td>
+                        <td>
+                          <span className={`badge ${transaction.type === 'buy' ? 'bg-success' : 'bg-danger'}`}>
+                            {transaction.type || 'Unknown'}
+                          </span>
+                        </td>
+                        <td>{transaction.quantity || 0}</td>
+                        <td>₹{formatTransactionAmount(transaction)}</td>
+                        <td>{transaction.date || transaction.transaction_date 
+                            ? new Date(transaction.date || transaction.transaction_date).toLocaleDateString() 
+                            : 'N/A'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center p-4">
+                <p>No recent transactions</p>
+                <Link to="/buy-stock" className="btn btn-primary">Start Trading</Link>
               </div>
             )}
           </div>
-        ) : (
-          <p>No stocks in watchlist</p>
-        )}
-      </div>
+        </div>
+      </section>
+
+      {/* Watchlist Preview */}
+      <section className="watchlist-preview mt-4">
+        <div className="card">
+          <div className="card-header d-flex justify-content-between align-items-center">
+            <h2>Watchlist</h2>
+            <Link to="/watchlist" className="btn btn-sm btn-outline-primary">View All</Link>
+          </div>
+          <div className="card-body">
+            {watchlistItems.length > 0 ? (
+              <div className="row">
+                {watchlistItems.slice(0, 5).map((stock, index) => {
+                  const current_price = parseFloat(stock.current_price || stock.currentPrice || 0);
+                  const previous_close = parseFloat(stock.previous_close || stock.previousClose || 0);
+                  const priceChange = previous_close 
+                    ? ((current_price - previous_close) / previous_close) * 100 
+                    : 0;
+                  
+                  return (
+                    <div key={stock.id || stock.stock_id || `stock-${index}`} className="col-md-4 mb-3">
+                      <div className="card h-100">
+                        <div className="card-body">
+                          <h5 className="card-title">{stock.symbol}</h5>
+                          <h6 className="card-subtitle mb-2 text-muted">{stock.name}</h6>
+                          <div className="d-flex justify-content-between">
+                            <span>₹{current_price.toFixed(2)}</span>
+                            <span className={`${priceChange >= 0 ? 'text-success' : 'text-danger'}`}>
+                              {priceChange >= 0 ? '+' : ''}
+                              {priceChange.toFixed(2)}%
+                            </span>
+                          </div>
+                          <div className="mt-2">
+                            <Link to={`/buy-stock/${stock.stock_id || stock.id}`} className="btn btn-sm btn-outline-success">
+                              Buy
+                            </Link>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center p-4">
+                <p>Your watchlist is empty</p>
+                <Link to="/buy-stock" className="btn btn-primary">Explore Stocks</Link>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Investment Insights */}
+      {insights.length > 0 && (
+        <section className="investment-insights mt-4 mb-4">
+          <div className="card">
+            <div className="card-header">
+              <h2>Investment Insights</h2>
+            </div>
+            <div className="card-body">
+              <div className="row">
+                {insights.map((insight, index) => (
+                  <div key={insight.id || `insight-${index}`} className="col-md-4 mb-3">
+                    <div className="card h-100"><div className="card-body">
+                        <h5 className="card-title">{insight.title}</h5>
+                        <span className={`badge bg-${(insight.type || '').toLowerCase() === 'tip' ? 'info' : 'warning'} mb-2`}>
+                          {insight.type}
+                        </span>
+                        <p className="card-text">{insight.description}</p>
+                        <Link 
+                          to={`/stocks/${insight.stockSymbol}`} 
+                          className="btn btn-sm btn-outline-primary"
+                        >
+                          View Details
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 };
